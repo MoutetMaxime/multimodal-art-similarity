@@ -23,17 +23,15 @@ Develop a **multimodal similarity search system** (text + image) to:
 ```bash
 multimodal-art-similarity/
 ├── data/
-│   ├── stolen_art_db.csv              # Database of stolen artworks
-│   ├── museum_collections.csv         # Database of museum artworks
-│   └── images/                        # Artwork images (optional)
-├── models/
-│   └── embedding_model.py             # Text/image embedding utilities
-├── search/
-│   └── similarity_search.py           # FAISS or cosine-based search
+│   ├── lostart                        # Database of stolen artworks
+│   ├── mnr_20250303.ods               # Database of museum artworks
+│   └── images/                        # Artwork images
 ├── notebooks/
-│   └── 01_data_exploration.ipynb      # Initial data analysis
-├── app/
-│   └── streamlit_app.py               # Optional search interface
+│   └── 
+├── src/
+│   └── FindLostArt.py                 # Search by similarity accross databases
+│   └── Embedding.py                   # Text/image embedding utilities
+│   └── utils
 ├── README.md
 └── requirements.txt
 ```
@@ -42,7 +40,7 @@ multimodal-art-similarity/
 
 1. Clone the repo:
    ```bash
-   git clone https://github.com/your_username/multimodal-art-similarity.git
+   git clone https://github.com/MoutetMaxime/multimodal-art-similarity.git
    cd multimodal-art-similarity
    ```
 
@@ -53,7 +51,7 @@ multimodal-art-similarity/
 
 5. Run a basic similarity search:
    ```bash
-   python search/similarity_search.py
+   python src/FindLostArt.py
    ```
 
 ## 📚 References
