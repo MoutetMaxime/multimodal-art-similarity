@@ -9,6 +9,7 @@ from Embedding import EmbeddingFromPretrained
 from utils.processing_df import (
     add_column_with_concatenated_txt,
     find_lostart_csv,
+    find_lostart_csvs,
     get_concatenated_txt,
     keep_necessary_columns_la,
     keep_necessary_columns_mnr,
@@ -201,8 +202,10 @@ class FindLostArt:
 
 if __name__ == "__main__":
     timing.ENABLE_TIMING = True
-    find_lostart = FindLostArt()
+    # find_lostart = FindLostArt()
     
     # Search for a Lost Art ID
-    res = find_lostart.search_lostart(589707, top_n=5, cross_check=False)
-    print(res)
+    # res = find_lostart.search_lostart(589707, top_n=5, cross_check=False)
+    # print(res)
+
+    print(find_lostart_csvs([310418]))

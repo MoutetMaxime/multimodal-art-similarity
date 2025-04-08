@@ -38,6 +38,9 @@ def find_lostart_csvs(ids: List[int]):
     for idx, id in enumerate(ids):
         if dfs[idx] is None:
             print(f"Lost Art ID {id} not found in any csv file. Skipping.")
+    
+    if np.sum(dfs == None) == len(dfs):
+        return None
     return pd.concat(dfs)
 
 
