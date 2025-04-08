@@ -95,7 +95,7 @@ def extract_slider_image_urls(page_url: str, verbose: bool=True) -> List[str]:
 
     return image_urls
 
-def download_images_from_page(page_url: str, image_id: str, download_dir: str="data/images", verbose: bool=False):
+def download_images_from_page(page_url: str, image_id: str, download_dir: str="data/images", only_first: bool=True, verbose: bool=False):
     """
     Download images from a given page URL based on the image ID."
     """
@@ -115,9 +115,18 @@ def download_images_from_page(page_url: str, image_id: str, download_dir: str="d
 
         if slider_image_urls:
             # If slider images are found, it's from the "mnr" dataset
-            slider_image_dir = os.path.join(download_dir, f"mnr/{image_id}")
+            if only_first:
+                slider_image_dir = os.path.join(download_dir, f"mnr")
+            else:
+                slider_image_dir = os.path.join(download_dir, f"mnr/{image_id}")
+
             os.makedirs(slider_image_dir, exist_ok=True)
             for i, img_url in enumerate(slider_image_urls):
+                if only_first and i == 0:
+                    filename = str(image_id)
+                    download_image(img_url, slider_image_dir, filename)
+                    break
+
                 filename = os.path.basename(img_url)
                 download_image(img_url, slider_image_dir, filename.split('.')[0])
 

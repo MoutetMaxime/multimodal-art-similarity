@@ -9,8 +9,8 @@ def find_lostart_csv(id: int):
     """
     Find the csv file containing the Lost Art ID and return the corresponding dataframe.
     """
-    for csv in os.listdir("data/lostart"):
-        df = pd.read_csv(f"data/lostart/{csv}", sep=";")
+    for csv in os.listdir("../data/lostart"):
+        df = pd.read_csv(f"../data/lostart/{csv}", sep=";")
 
         if df.loc[df["Lost Art ID"] == id].shape[0] > 0:
             return csv, df.loc[df["Lost Art ID"] == id]

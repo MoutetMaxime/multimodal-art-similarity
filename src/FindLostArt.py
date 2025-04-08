@@ -88,6 +88,7 @@ class FindLostArt:
         return self.mnr.loc[similarities.nlargest(top_n).index].reset_index(), similarities.nlargest(top_n).values
     
 
+    @timing
     def get_most_similar_title_author_desc(self, embs: List[torch.tensor], top_n: int=5, agg: str="mean"):
         """
         Get the most similar text to the given embedding in the given dataframe.
@@ -171,6 +172,7 @@ class FindLostArt:
 
         return similar_text, similarities
     
+
     def evaluate_on_found(self, top_n: int=10, cross_check: bool=False):
         """
         Evaluate the model on the found Lost Art IDs.
