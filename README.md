@@ -1,5 +1,3 @@
-# README for multimodal-art-similarity
-
 # 🎨 multimodal-art-similarity
 
 A research project aimed at identifying stolen artworks by automatically comparing their descriptions and images to those of artworks exhibited in French museums.
