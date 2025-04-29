@@ -9,8 +9,8 @@ def find_lostart_csv(id: int):
     """
     Find the csv file containing the Lost Art ID and return the corresponding dataframe.
     """
-    for csv in os.listdir("../data/lostart"):
-        df = pd.read_csv(f"../data/lostart/{csv}", sep=";")
+    for csv in os.listdir("data/lostart"):
+        df = pd.read_csv(f"data/lostart/{csv}", sep=";")
 
         if df.loc[df["Lost Art ID"] == id].shape[0] > 0:
             return csv, df.loc[df["Lost Art ID"] == id]
@@ -26,7 +26,7 @@ def find_lostart_csvs(ids: List[int]):
     If one id is not found, a warning is printed and the corresponding id is skipped.
     """
 
-    dfs = np.array([None] * len(ids))
+    dfs = [None] * len(ids)
 
     for csv in os.listdir("data/lostart"):
         df = pd.read_csv(f"data/lostart/{csv}", sep=";")
@@ -39,17 +39,18 @@ def find_lostart_csvs(ids: List[int]):
         if dfs[idx] is None:
             print(f"Lost Art ID {id} not found in any csv file. Skipping.")
     
-    if np.sum(dfs == None) == len(dfs):
+    if sum(x is None for x in dfs) == len(dfs):
         return None
+
     return pd.concat(dfs)
 
 
 def find_pop(id: str):
     """
-    Find the pop line containing the Lost Art ID and return the corresponding dataframe.
+    Find the pop line containing the MNR ID and return the corresponding dataframe.
     If the pop line is not found, return None.
     """
-    df = pd.read_excel("../data/mnr_20250303_17h40m54s.ods")
+    df = pd.read_excel("data/mnr_20250303.ods")
 
     try :
         df.loc[df["REF"] == id].shape[0] > 0
@@ -121,3 +122,22 @@ def add_column_with_concatenated_txt(df: pd.DataFrame):
     """
     df["CONCATENATED"] = df.apply(lambda row: get_concatenated_txt(row), axis=1)
     return df
+
+
+if __name__ == "__main__":
+    found2found = {
+            589707: "MNR00246",
+            589708: "MNR00253",
+            614072: "MNR00181",
+            526702: "MNR00387",
+            567247: "MNR00386",
+            429210: "MNR00707",
+            310418: "OAR00093",
+            600027: "OAR00540",
+            323038: "RFR00041"
+        }
+    
+    find_lostart_csvs(list(found2found.keys()))
+
+    for mnr in found2found.values():
+        print(find_pop(mnr))

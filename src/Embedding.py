@@ -15,12 +15,12 @@ class EmbeddingFromPretrained:
             outputs = self.model(**inputs)
         
         return outputs.last_hidden_state[:, 0, :]
-    
+
     def get_mean_pooling_embedding(self, text: str):
         inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True)
         with torch.no_grad():
             outputs = self.model(**inputs)
-        
+
         attention_mask = inputs['attention_mask']
         token_embeddings = outputs.last_hidden_state
         input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
@@ -28,7 +28,7 @@ class EmbeddingFromPretrained:
 
 
 class ImageEmbeddingFromPretrained:
-    def __init__(self, model_name: str = "facebook/dinov2-base"):
+    def __init__(self, model_name: str = "facebook/dinov2-small"):
         self.processor = AutoImageProcessor.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name)
         self.emb_size = self.model.config.hidden_size
