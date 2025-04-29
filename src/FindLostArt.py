@@ -27,11 +27,11 @@ class FindLostArt:
             start: int=0,
             language_model: str="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             cls_embedding: bool=True,
-            vision_model: str="facebook/dinov2-base"
+            vision_model: str="facebook/dinov2-small"
         ):
 
         self.lostart = pd.read_csv(f"data/lostart/lostart_start={start}.csv", sep=";")
-        self.mnr = pd.read_excel("data/mnr_20250303_17h40m54s.ods")
+        self.mnr = pd.read_excel("data/mnr_20250303.ods")
 
         self.found = pd.read_csv("data/found_lostart.csv")
         self.found2found = {
@@ -41,9 +41,9 @@ class FindLostArt:
             526702: "MNR00387",
             567247: "MNR00386",
             429210: "MNR00707",
-            310418: "OAR00093",
-            600027: "OAR00540",
-            323038: "RFR00041"
+            # 310418: "OAR00093",
+            # 600027: "OAR00540",
+            # 323038: "RFR00041"
         }
 
         self.mnr2la = {
@@ -66,6 +66,7 @@ class FindLostArt:
         # Chose embedding
         embedder = EmbeddingFromPretrained(model_name=language_model)
         self.embedding = embedder.get_cls_embedding if cls_embedding else embedder.get_mean_pooling_embedding
+        self.cls_embedding = cls_embedding
         self.emb_size = embedder.emb_size
 
         self.vision_model = vision_model
@@ -123,26 +124,36 @@ class FindLostArt:
         """
         results = []
 
-        # We stream the images from their urls
-        for mnr, mnr_url in self.mnr[["REF", "VIDEO"]].values:
-            # Get the image urls
-            slider_image_urls = extract_slider_image_urls(mnr_url)
+        # If we already computed all embeddings (search for a .pt file in the data/embeddings folder)
+        if os.path.exists("data/embeddings/mnr_cls_embeddings.pt") or os.path.exists("data/embeddings/mnr_mean_pooling_embeddings.pt"):
+            mnr_emb = torch.load("data/embeddings/mnr_cls_embeddings.pt") if self.cls_embedding else torch.load("data/embeddings/mnr_mean_pooling_embeddings.pt")
 
-            # We use only the first image
-            if slider_image_urls:
-                mnr_im = slider_image_urls[0]
-                mnr_im = download_image_in_memory(mnr_im)
+            refs, embedding = mnr_emb["refs"], mnr_emb["embeddings"]
 
-                # Compute embedding
-                mnr_emb = vision_embedder(mnr_im)
+            similarities = cosine_similarity(emb, embedding.squeeze(1)).flatten()
+            results = [{"REF": ref, "similarity_image": sim} for ref, sim in zip(refs, similarities)]
 
-                # We delete the image to free memory
-                del mnr_im
+        else:
+            # We stream the images from their urls
+            for mnr, mnr_url in self.mnr[["REF", "VIDEO"]].values:
+                # Get the image urls
+                slider_image_urls = extract_slider_image_urls(mnr_url)
 
-                # Compute similarity
-                similarities = cosine_similarity(emb, mnr_emb).item()
+                # We use only the first image
+                if slider_image_urls:
+                    mnr_im = slider_image_urls[0]
+                    mnr_im = download_image_in_memory(mnr_im)
 
-                results.append({"REF": mnr_url, "similarity_image": similarities})
+                    # Compute embedding
+                    mnr_emb = vision_embedder(mnr_im)
+
+                    # We delete the image to free memory
+                    del mnr_im
+
+                    # Compute similarity
+                    similarities = cosine_similarity(emb, mnr_emb).item()
+
+                    results.append({"REF": mnr_url, "similarity_image": similarities})
 
 
         df_results = pd.DataFrame(results)
@@ -196,14 +207,15 @@ class FindLostArt:
         return self.mnr.loc[similarities.nlargest(top_n).index].reset_index(), similarities.nlargest(top_n).values
 
 
+    @staticmethod
     def calculate_similarity(row: pd.Series, beta_default: int=0.5):
-        if pd.isna(row["similarity_image"]):  # Si l'image est absente
-            beta = 1.0  # On ne prend en compte que le texte
+        if pd.isna(row["similarity_image"]):
+            beta = 1.0
         else:
-            beta = beta_default  # Valeur de beta par défaut, lorsque l'image est présente
+            beta = beta_default
 
-        # Calcul final de la similarité
         return beta * row["similarity_text"] + (1 - beta) * row["similarity_image"]
+
 
     def search_lostart(self, id: int, top_n: int=5, cross_check: bool=False, use_vision: bool=False, beta: float=0.5):
         """
@@ -272,7 +284,7 @@ class FindLostArt:
             similar_text["similarity_text"] = similarities
         
         if use_vision:
-            vision_embedder = ImageEmbeddingFromPretrained(model_name=self.vision_model).get_mean_pooling_embedding
+            vision_embedder = ImageEmbeddingFromPretrained(model_name=self.vision_model).get_cls_embedding if self.embedding == "cls" else ImageEmbeddingFromPretrained(model_name=self.vision_model).get_mean_pooling_embedding
 
             # Get the image embedding
             image_path = os.path.join("data/images/lostart", f"{id}.jpg")
@@ -329,10 +341,22 @@ class FindLostArt:
 
 if __name__ == "__main__":
     timing.ENABLE_TIMING = True
-    # find_lostart = FindLostArt()
+    find_lostart = FindLostArt()
     
     # Search for a Lost Art ID
+    id = 567247
+    vision_embedder = ImageEmbeddingFromPretrained(model_name=find_lostart.vision_model).get_cls_embedding
+    print("Vision embedder loaded succesfully !")
+
+    # Get the image embedding
+    image_path = os.path.join("data/images/lostart", f"{id}.jpg")
+    print(os.path.exists(image_path))
+    if os.path.exists(image_path):
+        image_embedding = vision_embedder(image_path)
+        similar_image, similarities_image = find_lostart.get_most_similar_image(image_embedding, vision_embedder)
+        print(similar_image.head(5))
+
     # res = find_lostart.search_lostart(589707, top_n=5, cross_check=False)
     # print(res)
 
-    print(find_lostart_csvs([310418]))
+    # print(find_lostart_csvs([310418]))

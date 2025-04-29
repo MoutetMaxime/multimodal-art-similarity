@@ -32,6 +32,16 @@ class ImageEmbeddingFromPretrained:
         self.processor = AutoImageProcessor.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name)
         self.emb_size = self.model.config.hidden_size
+    
+    def get_cls_embedding(self, image_path: str):
+        image = Image.open(image_path).convert("RGB")
+        inputs = self.processor(images=image, return_tensors="pt")
+        
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+
+        # CLS token
+        return outputs.last_hidden_state[:, 0, :]
 
     def get_mean_pooling_embedding(self, image_path: str):
         image = Image.open(image_path).convert("RGB")

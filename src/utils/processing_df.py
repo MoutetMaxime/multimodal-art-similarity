@@ -28,8 +28,8 @@ def find_lostart_csvs(ids: List[int]):
 
     dfs = [None] * len(ids)
 
-    for csv in os.listdir("data/lostart"):
-        df = pd.read_csv(f"data/lostart/{csv}", sep=";")
+    for csv in os.listdir("../data/lostart"):
+        df = pd.read_csv(f"../data/lostart/{csv}", sep=";")
 
         for idx, id in enumerate(ids):
             if df.loc[df["Lost Art ID"] == id].shape[0] > 0:
