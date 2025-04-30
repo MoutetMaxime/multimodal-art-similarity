@@ -3,12 +3,21 @@ from PIL import Image
 from transformers import AutoImageProcessor, AutoModel, AutoTokenizer
 
 
-class EmbeddingFromPretrained:
-    def __init__(self, model_name: str="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
+class TextEmbeddingFromPretrained:
+    def __init__(self, model_name: str="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device: str="cpu"):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name)
         self.emb_size = self.model.config.hidden_size
     
+        if device == "cuda" and torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif device == "mps" and torch.backends.mps.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+        self.model.to(device)
+        self.tokenizer.to(device)
+
     def get_cls_embedding(self, text: str):
         inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True)
         with torch.no_grad():
@@ -28,10 +37,19 @@ class EmbeddingFromPretrained:
 
 
 class ImageEmbeddingFromPretrained:
-    def __init__(self, model_name: str = "facebook/dinov2-small"):
+    def __init__(self, model_name: str = "facebook/dinov2-small", device: str = "cpu"):
         self.processor = AutoImageProcessor.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name)
         self.emb_size = self.model.config.hidden_size
+
+        if device == "cuda" and torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif device == "mps" and torch.backends.mps.is_available():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+        self.model.to(device)
+        self.tokenizer.to(device)
     
     def get_cls_embedding(self, image_path: str):
         image = Image.open(image_path).convert("RGB")
@@ -40,7 +58,6 @@ class ImageEmbeddingFromPretrained:
         with torch.no_grad():
             outputs = self.model(**inputs)
 
-        # CLS token
         return outputs.last_hidden_state[:, 0, :]
 
     def get_mean_pooling_embedding(self, image_path: str):

@@ -1,4 +1,3 @@
-import gc
 import os
 from typing import Callable, List, Optional
 
@@ -8,12 +7,11 @@ import torch
 from PIL import Image
 from sklearn.metrics.pairwise import cosine_similarity
 
-from Embedding import EmbeddingFromPretrained, ImageEmbeddingFromPretrained
-from utils.download import download_image_in_memory, extract_slider_image_urls
-from utils.processing_df import (
+from Embedding import ImageEmbeddingFromPretrained, TextEmbeddingFromPretrained
+from utils.image_tools import download_image_in_memory, extract_slider_image_urls
+from utils.text_tools import (
     add_column_with_concatenated_txt,
     find_lostart_csv,
-    find_lostart_csvs,
     get_concatenated_txt,
     keep_necessary_columns_la,
     keep_necessary_columns_mnr,
@@ -27,13 +25,17 @@ class FindLostArt:
             start: int=0,
             language_model: str="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             cls_embedding: bool=True,
-            vision_model: str="facebook/dinov2-small"
+            vision_model: str="facebook/dinov2-small",
+            device: Optional[str] = None
         ):
+        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.lostart = pd.read_csv(f"data/lostart/lostart_start={start}.csv", sep=";")
-        self.mnr = pd.read_excel("data/mnr_20250303.ods")
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        # Load the data
+        self.lostart = pd.read_csv(os.path.join(base_dir, "data", "lostart", f"lostart_start={start}.csv"), sep=";")
+        self.mnr = pd.read_excel(os.path.join(base_dir, "data", "mnr_20250303.ods"))
+        self.found = pd.read_csv(os.path.join(base_dir, "data", "found.csv"))
 
-        self.found = pd.read_csv("data/found_lostart.csv")
         self.found2found = {
             589707: "MNR00246",
             589708: "MNR00253",
@@ -41,9 +43,9 @@ class FindLostArt:
             526702: "MNR00387",
             567247: "MNR00386",
             429210: "MNR00707",
-            # 310418: "OAR00093",
-            # 600027: "OAR00540",
-            # 323038: "RFR00041"
+            310418: "OAR00093",
+            600027: "OAR00540",
+            323038: "RFR00041"
         }
 
         self.mnr2la = {
@@ -64,7 +66,7 @@ class FindLostArt:
         self.mnr = add_column_with_concatenated_txt(self.mnr)
 
         # Chose embedding
-        embedder = EmbeddingFromPretrained(model_name=language_model)
+        embedder = TextEmbeddingFromPretrained(model_name=language_model, device=self.device)
         self.embedding = embedder.get_cls_embedding if cls_embedding else embedder.get_mean_pooling_embedding
         self.cls_embedding = cls_embedding
         self.emb_size = embedder.emb_size
@@ -124,8 +126,9 @@ class FindLostArt:
         """
         results = []
 
-        # If we already computed all embeddings (search for a .pt file in the data/embeddings folder)
-        if os.path.exists("data/embeddings/mnr_cls_embeddings.pt") or os.path.exists("data/embeddings/mnr_mean_pooling_embeddings.pt"):
+        # Check if we already computed all embeddings (search for a .pt file in the data/embeddings folder)
+        if (os.path.exists("data/embeddings/mnr_cls_embeddings.pt") and self.cls_embedding) or (os.path.exists("data/embeddings/mnr_mean_pooling_embeddings.pt") and not self.cls_embedding):
+            # We load the embeddings from the file
             mnr_emb = torch.load("data/embeddings/mnr_cls_embeddings.pt") if self.cls_embedding else torch.load("data/embeddings/mnr_mean_pooling_embeddings.pt")
 
             refs, embedding = mnr_emb["refs"], mnr_emb["embeddings"]
