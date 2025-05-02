@@ -37,11 +37,15 @@ def download_image(image_url: str, save_folder: str, image_id: str, timeout: int
 def download_image_in_memory(image_url: str):
     """
     Stream an image from the URL into memory and return a PIL Image.
+    If the download or decoding fails, return None.
     """
-    response = requests.get(image_url, stream=True)
-    response.raise_for_status()
-    img = Image.open(BytesIO(response.content)).convert('RGB')  # Always convert to RGB
-    return img
+    try:
+        response = requests.get(image_url, stream=True, timeout=10)
+        response.raise_for_status()
+        img = Image.open(BytesIO(response.content)).convert('RGB')
+        return img
+    except Exception:
+        return None
 
 
 def extract_single_image_url(page_url: str, verbose: bool=True):

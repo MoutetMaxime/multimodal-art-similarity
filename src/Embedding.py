@@ -16,7 +16,6 @@ class TextEmbeddingFromPretrained:
         else:
             device = torch.device("cpu")
         self.model.to(device)
-        self.tokenizer.to(device)
 
     def get_cls_embedding(self, text: str):
         inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True)
@@ -49,10 +48,8 @@ class ImageEmbeddingFromPretrained:
         else:
             device = torch.device("cpu")
         self.model.to(device)
-        self.tokenizer.to(device)
     
-    def get_cls_embedding(self, image_path: str):
-        image = Image.open(image_path).convert("RGB")
+    def get_cls_embedding(self, image: Image.Image):
         inputs = self.processor(images=image, return_tensors="pt")
         
         with torch.no_grad():
@@ -60,8 +57,7 @@ class ImageEmbeddingFromPretrained:
 
         return outputs.last_hidden_state[:, 0, :]
 
-    def get_mean_pooling_embedding(self, image_path: str):
-        image = Image.open(image_path).convert("RGB")
+    def get_mean_pooling_embedding(self, image: Image.Image):
         inputs = self.processor(images=image, return_tensors="pt")
         
         with torch.no_grad():

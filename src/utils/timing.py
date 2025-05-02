@@ -1,12 +1,14 @@
 import time
 from functools import wraps
 
-ENABLE_TIMING = True
+
+class TimingConfig:
+    ENABLE = True
 
 def timing(method):
     @wraps(method)
     def timed(*args, **kwargs):
-        if ENABLE_TIMING:
+        if TimingConfig.ENABLE:
             start = time.time()
             result = method(*args, **kwargs)
             end = time.time()

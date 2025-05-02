@@ -7,16 +7,17 @@ import torch
 from PIL import Image
 from sklearn.metrics.pairwise import cosine_similarity
 
+import utils.timing as timing
 from Embedding import ImageEmbeddingFromPretrained, TextEmbeddingFromPretrained
 from utils.image_tools import download_image_in_memory, extract_slider_image_urls
 from utils.text_tools import (
     add_column_with_concatenated_txt,
     find_lostart_csv,
+    find_lostart_csvs,
     get_concatenated_txt,
     keep_necessary_columns_la,
     keep_necessary_columns_mnr,
 )
-from utils.timing import timing
 
 
 class FindLostArt:
@@ -25,16 +26,16 @@ class FindLostArt:
             start: int=0,
             language_model: str="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             cls_embedding: bool=True,
-            vision_model: str="facebook/dinov2-small",
+            vision_model: str="facebook/dinov2-base",
             device: Optional[str] = None
         ):
         self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
 
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        self.base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
         # Load the data
-        self.lostart = pd.read_csv(os.path.join(base_dir, "data", "lostart", f"lostart_start={start}.csv"), sep=";")
-        self.mnr = pd.read_excel(os.path.join(base_dir, "data", "mnr_20250303.ods"))
-        self.found = pd.read_csv(os.path.join(base_dir, "data", "found.csv"))
+        self.lostart = pd.read_csv(os.path.join(self.base_dir, "data", "lostart", f"lostart_start={start}.csv"), sep=";")
+        self.mnr = pd.read_excel(os.path.join(self.base_dir, "data", "mnr_20250303.ods"))
+        self.found = pd.read_csv(os.path.join(self.base_dir, "data", "found.csv"))
 
         self.found2found = {
             589707: "MNR00246",
@@ -53,14 +54,12 @@ class FindLostArt:
             "TITR": "Titel",
             "REPR": "Beschreibung",
         }
-    
+
 
         # Process the data
         self.lostart = keep_necessary_columns_la(self.lostart)
         self.found = keep_necessary_columns_la(self.found)
-
         self.mnr = keep_necessary_columns_mnr(self.mnr)
-        # self.mnr = remove_leakage_mnr(self.mnr)
 
         # Create CONCATENATED column in MNR
         self.mnr = add_column_with_concatenated_txt(self.mnr)
@@ -74,7 +73,7 @@ class FindLostArt:
         self.vision_model = vision_model
 
 
-    @timing
+    @timing.timing
     def get_most_similar_text(self, emb: torch.tensor, top_n: int=None):
         """
         Get the most similar text to the given embedding in the given dataframe.
@@ -95,14 +94,16 @@ class FindLostArt:
         np.ndarray
             The similarity scores.
         """
-
         similarities = self.mnr["CONCATENATED"].apply(lambda x: cosine_similarity(emb, self.embedding(x)).item())
+
+        # Sort the dataframe by similarity
+        similarities = similarities.sort_values(ascending=False)
         if top_n is None:
             top_n = len(self.mnr)
         return self.mnr.loc[similarities.nlargest(top_n).index].reset_index(), similarities.nlargest(top_n).values
 
-    @timing
-    def get_most_similar_image(self, emb: torch.tensor, vision_embedder: Callable[[Image.Image], torch.tensor], top_n: Optional[int]=None):
+    @timing.timing
+    def get_most_similar_image(self, emb: torch.tensor, vision_embedder: Callable[[Image.Image], torch.tensor], top_n: Optional[int]=None, embeddings_file: Optional[str]=None):    
         """
         Get the most similar image to the given embedding in the given dataframe.
         Return the top_n most similar images and their similarity scores.
@@ -116,6 +117,9 @@ class FindLostArt:
         top_n : int
             The number of most similar images to return.
             If None, return all the images.
+        embeddings_file : str
+            A precomputed embeddings file to use.
+            If None, compute the embeddings from the dataframe.
         
         Returns
         -------
@@ -127,9 +131,9 @@ class FindLostArt:
         results = []
 
         # Check if we already computed all embeddings (search for a .pt file in the data/embeddings folder)
-        if (os.path.exists("data/embeddings/mnr_cls_embeddings.pt") and self.cls_embedding) or (os.path.exists("data/embeddings/mnr_mean_pooling_embeddings.pt") and not self.cls_embedding):
+        if embeddings_file is not None and os.path.exists(os.path.join(self.base_dir, "data", "embeddings", embeddings_file)):
             # We load the embeddings from the file
-            mnr_emb = torch.load("data/embeddings/mnr_cls_embeddings.pt") if self.cls_embedding else torch.load("data/embeddings/mnr_mean_pooling_embeddings.pt")
+            mnr_emb = torch.load(os.path.join(self.base_dir, "data", "embeddings", embeddings_file))
 
             refs, embedding = mnr_emb["refs"], mnr_emb["embeddings"]
 
@@ -138,9 +142,12 @@ class FindLostArt:
 
         else:
             # We stream the images from their urls
-            for mnr, mnr_url in self.mnr[["REF", "VIDEO"]].values:
+            for mnr in self.mnr["REF"].values:
+                link = f"https://pop.culture.gouv.fr/notice/mnr/{mnr}"
+
                 # Get the image urls
-                slider_image_urls = extract_slider_image_urls(mnr_url)
+                # Each link has a slider with multiple images
+                slider_image_urls = extract_slider_image_urls(link)
 
                 # We use only the first image
                 if slider_image_urls:
@@ -154,9 +161,9 @@ class FindLostArt:
                     del mnr_im
 
                     # Compute similarity
-                    similarities = cosine_similarity(emb, mnr_emb).item()
+                    similaritiy = cosine_similarity(emb, mnr_emb).item()
 
-                    results.append({"REF": mnr_url, "similarity_image": similarities})
+                    results.append({"REF": mnr, "similarity_image": similaritiy})
 
 
         df_results = pd.DataFrame(results)
@@ -166,8 +173,8 @@ class FindLostArt:
         return df_results.head(top_n), df_results["similarity_image"].head(top_n).values
 
 
-    @timing
-    def get_most_similar_title_author_desc(self, embs: List[torch.tensor], top_n: int=None, agg: str="mean"):
+    @timing.timing
+    def get_most_similar_title_author_desc(self, embs: List[torch.tensor], top_n: int=None, embeddings_file: str=None):
         """
         Get the most similar text to the given embedding in the given dataframe.
         Return the top_n most similar texts and their similarity scores.
@@ -179,8 +186,9 @@ class FindLostArt:
         top_n : int
             The number of most similar texts to return.
             If None, return all the texts.
-        agg : str
-            The aggregation method to use. Can be "mean" or "max".
+        embeddings_file : str
+            A precomputed embeddings file to use.
+            If None, compute the embeddings from the dataframe.
 
         Returns
         -------
@@ -189,20 +197,28 @@ class FindLostArt:
         np.ndarray
             The similarity scores.
         """
-        # Compute the similarity for each column
-        # The cols should be ordered in the same way as the mnr dataframe
         sims = pd.DataFrame()
-        for i, mnr_col in enumerate(self.mnr2la.keys()):
-            if embs[i] is not None:
-                sims[mnr_col] = self.mnr[mnr_col].astype(str).apply(lambda x: cosine_similarity(embs[i], self.embedding(x)).item())
+        if embeddings_file is not None and os.path.exists(os.path.join(self.base_dir, "data", "embeddings", embeddings_file)):
+            assert ("cls" in embeddings_file and self.cls_embedding) or ("mean_pooling" in embeddings_file and not self.cls_embedding), "The embeddings file does not match the embedding type."
+            
+            # We load the embeddings from the file
+            mnr_emb = torch.load(os.path.join(self.base_dir, "data", "embeddings", embeddings_file))
 
-        # Compute the agg of the similarities
-        if agg == "mean":
-            similarities = np.mean(sims, axis=1)
-        elif agg == "max":
-            similarities = np.max(sims, axis=1)
+            refs, embedding = mnr_emb["refs"], mnr_emb["embeddings"]
+            for i, mnr_col in enumerate(self.mnr2la.keys()):
+                if embs[i] is not None:
+                    # Compute the similarity
+                    sims[mnr_col] = cosine_similarity(embs[i], embedding[:, i, :]).flatten()
+
         else:
-            raise ValueError(f"Aggregation method {agg} not supported. Use 'mean' or 'max'.")
+            # Compute the similarity for each column
+            # The cols should be ordered in the same way as the mnr dataframe
+            for i, mnr_col in enumerate(self.mnr2la.keys()):
+                if embs[i] is not None:
+                    sims[mnr_col] = self.mnr[mnr_col].astype(str).apply(lambda x: cosine_similarity(embs[i], self.embedding(x)).item())
+
+        # Compute the mean of the similarities
+        similarities = np.mean(sims, axis=1)
         
         # Get the most similar texts
         if top_n is None:
@@ -213,14 +229,93 @@ class FindLostArt:
     @staticmethod
     def calculate_similarity(row: pd.Series, beta_default: int=0.5):
         if pd.isna(row["similarity_image"]):
-            beta = 1.0
+            return row["similarity_text"]
         else:
-            beta = beta_default
+            return beta_default * row["similarity_text"] + (1 - beta_default) * row["similarity_image"]
+    
 
-        return beta * row["similarity_text"] + (1 - beta) * row["similarity_image"]
+    def rank_with_text(self, df: pd.Series, cross_comparison: bool=False, embeddings_file: str=None):
+        """
+        Compute the similarity of the Lost Art with the MNR dataframe and rank the results.
+
+        Parameters
+        ----------
+        df : pd.Series
+            The Lost Art to search for.
+            Columns must include "CONCATENATED", "AUTR", "TITR", "REPR" and "Lost Art ID".
+        cross_comparison : bool
+            If True, compute the similarity of each column separately and return the average.
+            If False, compute the similarity of the concatenated string of all columns.
+            Default is False.
+        Returns
+        -------
+        pd.DataFrame
+            The most similar texts.
+        """
+        if not cross_comparison:
+            # We compute the similarity of the Lost Art with a concatenated string of all columns from mnr
+            # Concatenate in one string
+            txt = get_concatenated_txt(df)
+
+            # Get the embedding
+            embedding = self.embedding(txt)
+
+            # Search in MNR
+            similar_text, similarities = self.get_most_similar_text(embedding)
+            similar_text = similar_text.drop(columns=["CONCATENATED"])
+            similar_text["similarity_text"] = similarities
+        
+        else:
+            # We compute the similarity of the Lost Art title with the MNR title, the Lost Art author with the MNR author, etc.
+            # We then return an average of the similarities
+
+            # Compute the embedding for each column
+            embs = []
+            for col in self.mnr2la.values():
+                if not pd.isna(df[col]):
+                    embs.append(self.embedding(df[col]))
+                else:
+                    embs.append(None)
+
+            # Compute the similarity for each column
+            similar_text, similarities = self.get_most_similar_title_author_desc(embs, embeddings_file=embeddings_file)
+            similar_text = similar_text.drop(columns=["CONCATENATED"])
+            similar_text["similarity_text"] = similarities
+
+        return similar_text
 
 
-    def search_lostart(self, id: int, top_n: int=5, cross_check: bool=False, use_vision: bool=False, beta: float=0.5):
+    def rank_with_image(self, id: int, embeddings_file: str=None):
+        """
+        Compute the similarity of the Lost Art with the MNR dataframe and rank the results.
+
+        Parameters
+        ----------
+        id : int
+            The Lost Art ID to search for.
+        embeddings_file : str
+            A precomputed embeddings file to use.
+            If None, compute the embeddings from the dataframe.
+        
+        Returns
+        -------
+        pd.DataFrame
+            The most similar images, in MNR.
+        """
+        vision_embedder = ImageEmbeddingFromPretrained(model_name=self.vision_model).get_cls_embedding
+
+        # Get the image embedding
+        image_path = os.path.join("data/images/lostart", f"{id}.jpg")
+        if os.path.exists(image_path):
+            image = Image.open(image_path).convert("RGB")
+            image_embedding = vision_embedder(image)
+            similar_image, similarities_image = self.get_most_similar_image(image_embedding, vision_embedder, embeddings_file=embeddings_file)
+
+        return similar_image
+
+
+
+    def search_lostart(self, id: int, top_n: int=5, use_text:bool=True, use_vision: bool=False, cross_comparison: bool=False, beta: float=0.5, text_embeddings_file: str=None, image_embeddings_file: str=None):
         """
         Search the Lost Art ID in MNR with similarity search.
 
@@ -241,6 +336,12 @@ class FindLostArt:
         beta : float
             The weight of the text similarity in the final similarity score.
             Default is 0.5.
+        text_embeddings_file : str
+            A precomputed embeddings file to use for the text similarity.
+            If None, compute the embeddings from the dataframe.
+        image_embeddings_file : str
+            A precomputed embeddings file to use for the image similarity.
+            If None, compute the embeddings from the dataframe.
 
         Returns
         -------
@@ -249,117 +350,93 @@ class FindLostArt:
         np.ndarray
             The similarity scores.
         """
+        assert use_text or use_vision, "At least one of use_text or use_vision must be True."
+
         if id not in self.lostart["Lost Art ID"].values:
-            csv, df = find_lostart_csv(id)
-            raise ValueError(f"Database not initialized properly. Lost Art ID {id} not in database but found in {csv} file.")
+            df, csv = find_lostart_csv(id)
+            raise ValueError(f"Database not initialized properly. Lost Art ID {id} not in database but found in {csv[0]} file.")
 
 
         df = self.lostart.loc[self.lostart["Lost Art ID"] == id]
         df = df.drop(columns=["Lost Art ID"]).squeeze()
 
-        if not cross_check:
-            # We compute the similarity of the Lost Art with a concatenated string of all columns from mnr
-            # Concatenate in one string
-            txt = get_concatenated_txt(df)
+        # Compute similarity with text only
+        if use_text:
+            similar_text = self.rank_with_text(df, cross_comparison=cross_comparison, embeddings_file=text_embeddings_file)
 
-            # Get the embedding
-            embedding = self.embedding(txt)
-
-            # Search in MNR
-            similar_text, similarities = self.get_most_similar_text(embedding)
-            similar_text = similar_text.drop(columns=["CONCATENATED"])
-        
-        else:
-            # We compute the similarity of the Lost Art title with the MNR title, the Lost Art author with the MNR author, etc.
-            # We then return an average of the similarities
-
-            # Compute the embedding for each column
-            embs = []
-            for col in self.mnr2la.values():
-                if not pd.isna(df[col]):
-                    embs.append(self.embedding(df[col]))
-                else:
-                    embs.append(None)
-
-            # Compute the similarity for each column
-            similar_text, similarities = self.get_most_similar_title_author_desc(embs, agg="mean")
-            similar_text = similar_text.drop(columns=["CONCATENATED"])
-            similar_text["similarity_text"] = similarities
-        
+        # Compute similarity with image only
+        similar_image = None
+        use_vision = use_vision and os.path.exists(os.path.join("data/images/lostart", f"{id}.jpg"))
         if use_vision:
-            vision_embedder = ImageEmbeddingFromPretrained(model_name=self.vision_model).get_cls_embedding if self.embedding == "cls" else ImageEmbeddingFromPretrained(model_name=self.vision_model).get_mean_pooling_embedding
+            similar_image = self.rank_with_image(id, embeddings_file=image_embeddings_file)
 
-            # Get the image embedding
-            image_path = os.path.join("data/images/lostart", f"{id}.jpg")
-            if os.path.exists(image_path):
-                image_embedding = vision_embedder(image_path)
-                similar_image, similarities_image = self.get_most_similar_image(image_embedding, vision_embedder)
-        
+        # If both are used, we merge the two dataframes
+        if use_text and use_vision:
             # Merge the two dataframes
             similar_art = pd.merge(similar_text, similar_image, on="REF", how="left")
-            similar_art = similar_text.rename(columns={"similarity_x": "similarity_text", "similarity_y": "similarity_image"})
+            similar_art = similar_art.rename(columns={"similarity_x": "similarity_text", "similarity_y": "similarity_image"})
 
             # Compute the final similarity
-            similar_art["similarity"] = similar_art.apply(self.calculate_similarity, axis=1)
+            similar_art["similarity"] = similar_art.apply(lambda row: self.calculate_similarity(row, beta_default=beta), axis=1)
             similar_art = similar_art.drop(columns=["similarity_text", "similarity_image"])
         else:
-            # We only keep the similarity of the text
-            similar_art = similar_text.rename(columns={"similarity": "similarity_text"})
+            if use_text:
+                similar_art = similar_text.rename(columns={"similarity_text": "similarity"})
+            else:
+                if similar_image is not None:
+                    similar_art = similar_image.rename(columns={"similarity_image": "similarity"})
+                else:
+                    similar_art = pd.DataFrame(columns=["REF", "similarity"])
 
         # Sort the dataframe by similarity
         similar_art = similar_art.sort_values(by="similarity", ascending=False)
+
         if top_n is not None:
             similar_art = similar_art.head(top_n)
-        return similar_art.reset_index(drop=True), similarities[:top_n].tolist()
+        return similar_art.reset_index(drop=True)
     
 
-    def evaluate_on_found(self, top_n: int=10, cross_check: bool=False):
+    def evaluate_on_found(self, top_n: int=None, use_text: bool=True, use_vision: bool=True, cross_comparison: bool=False, beta: float=0.5, text_embeddings_file: str=None, image_embeddings_file: str=None):
         """
         Evaluate the model on the found Lost Art IDs.
         """
-        result = pd.DataFrame(columns=["Lost Art ID", "rank", "similarity"])
+        result = {
+            "Lost Art ID": [],
+            "rank": [],
+            "similarity": []
+        }
 
-        for i, id in enumerate(self.found["Lost Art ID"]):
+        found, csvs = find_lostart_csvs(list(self.found2found.keys()))
+
+        for i, id in enumerate(found["Lost Art ID"]):
             print(f"Searching for Lost Art ID {id} in MNR...")
             if id not in self.lostart["Lost Art ID"].values:
                 # Add the row to the lostart dataframe
-                self.lostart = pd.concat([self.lostart, self.found.loc[[i]]], ignore_index=True)
-
-            similar_text, similarities = self.search_lostart(id, top_n=top_n, cross_check=cross_check)
+                self.lostart = pd.concat([self.lostart, found.iloc[[i]]])
+            
+            similar = self.search_lostart(id, top_n=top_n, use_text=use_text, cross_comparison=cross_comparison, use_vision=use_vision, beta=beta, text_embeddings_file=text_embeddings_file, image_embeddings_file=image_embeddings_file)
 
             # Check if we found the Lost Art ID in MNR
-            if self.found2found[id] in similar_text["REF"].values:
-                rank = similar_text.loc[similar_text["REF"] == self.found2found[id]].index[0]
-                sim = similarities[rank]
+            if self.found2found[id] in similar["REF"].values:
+                rank = similar.loc[similar["REF"] == self.found2found[id]].index[0]
+                sim = similar.loc[similar["REF"] == self.found2found[id], "similarity"].values[0]
             else:
-                rank = -1
-                sim = -1
+                rank = len(self.mnr)
+                sim = len(self.mnr)
 
             # Add the rank and similarity score to the dataframe
-            result = pd.concat([result, pd.DataFrame({"Lost Art ID": [id], "rank": [rank], "similarity": [sim]})], ignore_index=True)
+            result["Lost Art ID"].append(id)
+            result["rank"].append(rank)
+            result["similarity"].append(sim)
             print(f"Lost Art ID {id} found in MNR with rank {rank} and similarity {sim}")
 
-        return result
+        return pd.DataFrame(result)
 
 
 if __name__ == "__main__":
-    timing.ENABLE_TIMING = True
-    find_lostart = FindLostArt()
-    
-    # Search for a Lost Art ID
-    id = 567247
-    vision_embedder = ImageEmbeddingFromPretrained(model_name=find_lostart.vision_model).get_cls_embedding
-    print("Vision embedder loaded succesfully !")
-
-    # Get the image embedding
-    image_path = os.path.join("data/images/lostart", f"{id}.jpg")
-    print(os.path.exists(image_path))
-    if os.path.exists(image_path):
-        image_embedding = vision_embedder(image_path)
-        similar_image, similarities_image = find_lostart.get_most_similar_image(image_embedding, vision_embedder)
-        print(similar_image.head(5))
-
-    # res = find_lostart.search_lostart(589707, top_n=5, cross_check=False)
-    # print(res)
-
-    # print(find_lostart_csvs([310418]))
+    timing.TimingConfig.ENABLE = False
+    find_lostart = FindLostArt(start=8500, cls_embedding=False)
+    text_embeddings_file = "mnr_text_minilm_mean_pooling_embeddings.pt"
+    image_embeddings_file = "mnr_image_dino_cls_embeddings.pt"
+    res = find_lostart.evaluate_on_found(cross_comparison=True, use_text=True, use_vision=True, beta=0.1, text_embeddings_file=text_embeddings_file, image_embeddings_file=image_embeddings_file)
+    print(res)
