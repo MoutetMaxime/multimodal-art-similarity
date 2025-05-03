@@ -156,9 +156,7 @@ def download_images_from_page(page_url: str, image_id: str, download_dir: str="d
 
     if single_image_url:
         # If a single image is found, it's from the "lostart" dataset
-        single_image_dir = os.path.join(download_dir, "lostart")
-        os.makedirs(single_image_dir, exist_ok=True)
-        download_image(single_image_url, single_image_dir, image_id)
+        download_image(single_image_url, download_dir, image_id)
     else:
         download_slider_from_page(page_url, image_id, download_dir, only_first, verbose)
 

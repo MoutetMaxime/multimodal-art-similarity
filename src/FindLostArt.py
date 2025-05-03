@@ -25,7 +25,7 @@ class FindLostArt:
             self,
             start: int=0,
             language_model: str="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            cls_embedding: bool=True,
+            cls_embedding: bool=False,
             vision_model: str="facebook/dinov2-base",
             device: Optional[str] = None
         ):
@@ -73,7 +73,6 @@ class FindLostArt:
         self.vision_model = vision_model
 
 
-    @timing.timing
     def get_most_similar_text(self, emb: torch.tensor, top_n: int=None):
         """
         Get the most similar text to the given embedding in the given dataframe.
@@ -102,7 +101,6 @@ class FindLostArt:
             top_n = len(self.mnr)
         return self.mnr.loc[similarities.nlargest(top_n).index].reset_index(), similarities.nlargest(top_n).values
 
-    @timing.timing
     def get_most_similar_image(self, emb: torch.tensor, vision_embedder: Callable[[Image.Image], torch.tensor], top_n: Optional[int]=None, embeddings_file: Optional[str]=None):    
         """
         Get the most similar image to the given embedding in the given dataframe.
@@ -173,7 +171,6 @@ class FindLostArt:
         return df_results.head(top_n), df_results["similarity_image"].head(top_n).values
 
 
-    @timing.timing
     def get_most_similar_title_author_desc(self, embs: List[torch.tensor], top_n: int=None, embeddings_file: str=None):
         """
         Get the most similar text to the given embedding in the given dataframe.
@@ -314,7 +311,7 @@ class FindLostArt:
         return similar_image
 
 
-
+    @timing.timing
     def search_lostart(self, id: int, top_n: int=5, use_text:bool=True, use_vision: bool=False, cross_comparison: bool=False, beta: float=0.5, text_embeddings_file: str=None, image_embeddings_file: str=None):
         """
         Search the Lost Art ID in MNR with similarity search.
@@ -394,7 +391,7 @@ class FindLostArt:
         if top_n is not None:
             similar_art = similar_art.head(top_n)
         return similar_art.reset_index(drop=True)
-    
+
 
     def evaluate_on_found(self, top_n: int=None, use_text: bool=True, use_vision: bool=True, cross_comparison: bool=False, beta: float=0.5, text_embeddings_file: str=None, image_embeddings_file: str=None):
         """
